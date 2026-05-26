@@ -67,8 +67,12 @@ from controlnet_ext import (
     controlnet_type,
     get_cn_models,
 )
-from modules import images, paths, script_callbacks, scripts, shared
-from modules.devices import NansException
+from modules import devices, images, paths, script_callbacks, scripts, shared
+
+NansException = getattr(devices, "NansException", type("NansException", (Exception,), {}))
+if not hasattr(devices, "cond_cast_float"):
+    devices.cond_cast_float = lambda x: x.float() if devices.unet_needs_upcast else x
+
 from modules.processing import (
     Processed,
     StableDiffusionProcessingImg2Img,
