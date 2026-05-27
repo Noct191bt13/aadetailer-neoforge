@@ -281,7 +281,8 @@ class AfterDetailerScript(scripts.Script):
 
     @staticmethod
     def get_ultralytics_device() -> str:
-        if "adetailer" in shared.cmd_opts.use_cpu:
+        use_cpu = getattr(shared.cmd_opts, "use_cpu", ())
+        if use_cpu and "adetailer" in use_cpu:
             return "cpu"
 
         if platform.system() == "Darwin":
