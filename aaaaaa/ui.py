@@ -155,7 +155,7 @@ def adui(
 
         with gr.Group(), gr.Tabs():
             for n in range(num_models):
-                with gr.Tab(ordinal(n + 1)):
+                with gr.Tab(ordinal(n + 1), elem_id=elem_id("ad_tab", n, is_img2img)):
                     state, infofields = one_ui_group(
                         n=n,
                         is_img2img=is_img2img,
@@ -187,6 +187,13 @@ def one_ui_group(n: int, is_img2img: bool, webui_info: WebuiInfo):
                 value=True,
                 visible=True,
                 elem_id=eid("ad_tab_enable"),
+            )
+            w.ad_tab_alias = gr.Textbox(
+                label="Alias",
+                value="",
+                visible=True,
+                lines=1,
+                elem_id=eid("ad_tab_alias"),
             )
             w.ad_hires_fix_only = gr.Checkbox(
                 label="Apply only on hires.fix" + suffix(n),
