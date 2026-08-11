@@ -52,6 +52,14 @@ from adetailer.args import (
 )
 from adetailer.common import PredictOutput, ensure_pil_image, safe_mkdir
 from adetailer import sam as adetailer_sam
+from adetailer.lora import (
+    LORA_RE,
+    LORA_TOKEN_RE,
+    LORA_TRIGGER_RE,
+    extract_lora_triggers,
+    find_loras,
+    strip_lora_tokens,
+)
 from adetailer.mask import (
     filter_by_ratio,
     filter_k_by,
@@ -124,10 +132,11 @@ print(
 
 
 class AfterDetailerScript(scripts.Script):
-    LORA_RE = re.compile(
-        r"<([^<>]*):\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*>"
-    )
-    LORA_TRIGGER_RE = re.compile(r"\(([^()]+)\)")
+    # Regexes and lora-finding live in adetailer/lora.py (unit-testable
+    # without the webui); these class attributes keep old call sites working.
+    LORA_RE = LORA_RE
+    LORA_TOKEN_RE = LORA_TOKEN_RE
+    LORA_TRIGGER_RE = LORA_TRIGGER_RE
 
     def __init__(self):
         super().__init__()
@@ -406,28 +415,11 @@ class AfterDetailerScript(scripts.Script):
 
     @classmethod
     def extract_lora_triggers(cls, name: str) -> tuple[str, ...]:
-        triggers: list[str] = []
-        for match in cls.LORA_TRIGGER_RE.finditer(name):
-            trigger = match.group(1).strip()
-            if trigger and trigger not in triggers:
-                triggers.append(trigger)
-        return tuple(triggers)
+        return extract_lora_triggers(name)
 
     @classmethod
     def find_loras(cls, prompt: str) -> list["LoraInfo"]:
-        if not prompt:
-            return []
-        loras: list[LoraInfo] = []
-        seen_tokens = set()
-        for match in cls.LORA_RE.finditer(prompt):
-            token = match.group(0)
-            if token in seen_tokens:
-                continue
-            seen_tokens.add(token)
-            name = match.group(1).strip()
-            triggers = cls.extract_lora_triggers(name)
-            loras.append(LoraInfo(token=token, triggers=triggers))
-        return loras
+        return find_loras(prompt)
 
     def append_main_prompt_loras(
         self,
@@ -440,7 +432,7 @@ class AfterDetailerScript(scripts.Script):
         loras = self.find_loras(main_prompt)
         if not loras:
             return prompts
-        main_prompt_without_loras = self.LORA_RE.sub("", main_prompt)
+        main_prompt_without_loras = strip_lora_tokens(main_prompt)
 
         updated_prompts = []
         for prompt in prompts:
@@ -811,6 +803,11 @@ class AfterDetailerScript(scripts.Script):
             self.update_controlnet_args(i2i, args)
         elif args.ad_controlnet_model == "None":
             i2i.control_net_enabled = False
+
+        # Signal to loractl (Dynamic Lora Weights) that this processing object
+        # belongs to an ADetailer pass: loras carrying ad= then load at that
+        # constant weight instead of walking their step schedule.
+        i2i._loractl_ad_pass = True
 
         return i2i
 
@@ -1414,11 +1411,6 @@ def on_ui_settings():
 
 
 # xyz_grid
-
-
-class LoraInfo(NamedTuple):
-    token: str
-    triggers: tuple[str, ...]
 
 
 class PromptSR(NamedTuple):
