@@ -141,6 +141,14 @@ ADetailer works in three simple steps.
 2. Detect object with a detection model and create a mask image.
 3. Inpaint using the image from 1 and the mask from 2.
 
+## Settings
+
+`Settings -> ADetailer` (the same section as `ad_save_previews`):
+
+| Option | Description |
+| --- | --- |
+| SAM2 mask preview mode | When SAM2 mask refinement runs, append `[image+box | detector mask | SAM2 mask]` strips to the result gallery (`Gallery`) and/or save them (`Save files`, to `outputs/adetailer-sam-masks/`). |
+
 ## Development
 
 AADetailer is developed and tested using the SDXL model, for the latest version of [ReForge](https://github.com/Panchovix/stable-diffusion-webui-reForge) repository only.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import platform
 import re
 import sys
@@ -11,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import gradio as gr
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw
 from rich import print  # noqa: A004  Shadowing built-in 'print'
 
 import modules
@@ -321,6 +322,55 @@ class AfterDetailerScript(scripts.Script):
             return "cpu"
 
         return str(devices.device)
+
+    def _sam_preview_strips(
+        self,
+        image: Any,
+        bboxes: list[list[float]],
+        detector_masks: list[Image.Image] | None,
+        sam_masks: list[Image.Image],
+    ) -> list[Image.Image]:
+        """Build a [image+box | detector mask | SAM2 mask] strip per detection."""
+        img = ensure_pil_image(image, "RGB")
+        det_masks = detector_masks or []
+        strips: list[Image.Image] = []
+        for i, sam_mask in enumerate(sam_masks):
+            det_mask = (
+                det_masks[i] if i < len(det_masks) else Image.new("L", img.size, 0)
+            )
+            panel = img.copy()
+            ImageDraw.Draw(panel).rectangle(
+                [int(v) for v in bboxes[i]], outline=(255, 0, 0), width=3
+            )
+
+            strip = Image.new("RGB", (img.width * 3 + 20, img.height), (255, 255, 255))
+            strip.paste(panel, (0, 0))
+            strip.paste(ensure_pil_image(det_mask, "RGB"), (img.width + 10, 0))
+            strip.paste(ensure_pil_image(sam_mask, "RGB"), (img.width * 2 + 20, 0))
+            strips.append(strip)
+        return strips
+
+    def _save_sam_preview(self, strips: list[Image.Image]) -> None:
+        """Save preview strips to the webui outputs dir."""
+        import time
+
+        # Resolve the outputs dir the same way webui does (data_path + outdir
+        # samples option), then create it - webui creates outputs/ lazily, so
+        # it may not exist yet mid-generation.
+        outdir_cfg = getattr(shared.opts, "outdir_samples", None) or "outputs"
+        outdir_root = (
+            Path(outdir_cfg)
+            if os.path.isabs(str(outdir_cfg))
+            else Path(getattr(shared, "data_path", ".")) / str(outdir_cfg)
+        )
+        out_dir = outdir_root / "adetailer-sam-masks"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for i, strip in enumerate(strips):
+            strip.save(out_dir / f"{stamp}_box{i:02d}.png")
+
+        print(f"[-] ADetailer: SAM2 preview strips saved to {out_dir.resolve()}")
 
     def prompt_blank_replacement(
         self, all_prompts: list[str], i: int, default: str
@@ -1061,7 +1111,9 @@ class AfterDetailerScript(scripts.Script):
             and pred.bboxes
             and adetailer_sam.sam_available()
         ):
+            refined = False
             try:
+                detector_masks = pred.masks
                 pred.masks = adetailer_sam.refine(
                     args.ad_sam_model,
                     image=pp.image,
@@ -1072,12 +1124,26 @@ class AfterDetailerScript(scripts.Script):
                     offload_device=self.sam_offload_device,
                     keep_loaded=args.ad_sam_keep_loaded,
                 )
+                refined = True
             except Exception:
                 traceback.print_exc()
                 print(
                     "[-] ADetailer: SAM2 mask refinement failed, "
                     "falling back to detector masks."
                 )
+            preview_mode = shared.opts.data.get("ad_sam_mask_preview", "None")
+            if preview_mode != "None" and refined:
+                try:
+                    strips = self._sam_preview_strips(
+                        pp.image, pred.bboxes, detector_masks, pred.masks
+                    )
+                    if preview_mode in ("Gallery", "Gallery + save files"):
+                        p.extra_result_images.extend(strips)
+                    if preview_mode in ("Save files", "Gallery + save files"):
+                        self._save_sam_preview(strips)
+                except Exception:
+                    traceback.print_exc()
+                    print("[-] ADetailer: failed to produce SAM2 mask preview.")
 
         masks = self.pred_preprocessing(p, pred, args)
         shared.state.assign_current_image(pred.preview)
@@ -1241,6 +1307,28 @@ def on_ui_settings():
         "ad_save_images_before",
         shared.OptionInfo(
             default=False, label="Save images before ADetailer", section=section
+        ),
+    )
+
+    shared.opts.add_option(
+        "ad_sam_mask_preview",
+        shared.OptionInfo(
+            default="None",
+            label="SAM2 mask preview mode",
+            component=gr.Dropdown,
+            component_args={
+                "choices": [
+                    "None",
+                    "Gallery",
+                    "Save files",
+                    "Gallery + save files",
+                ]
+            },
+            section=section,
+        ).info(
+            "Append [image+box | detector mask | SAM2 mask] strips to the result "
+            "gallery and/or save them to the adetailer previews dir when SAM2 "
+            "mask refinement runs."
         ),
     )
 
