@@ -56,6 +56,8 @@ class ArgsList(UserList):
 class ADetailerArgs(BaseModel, extra=Extra.forbid):
     ad_model: str = "None"
     ad_model_classes: str = ""
+    ad_sam_model: str = "None"
+    ad_sam_keep_loaded: bool = True
     ad_tab_enable: bool = True
     ad_hires_fix_only: bool = False
     ad_prompt: str = ""
@@ -140,6 +142,8 @@ class ADetailerArgs(BaseModel, extra=Extra.forbid):
         ppop = partial(self.ppop, p)
 
         ppop("ADetailer model classes")
+        ppop("ADetailer SAM model", cond="None")
+        ppop("ADetailer SAM keep loaded", cond=True)
         ppop("ADetailer prompt")
         ppop("ADetailer negative prompt")
         ppop("ADetailer append main prompt LoRAs")
@@ -237,6 +241,8 @@ class ADetailerArgs(BaseModel, extra=Extra.forbid):
 _all_args = [
     ("ad_model", "ADetailer model"),
     ("ad_model_classes", "ADetailer model classes"),
+    ("ad_sam_model", "ADetailer SAM model"),
+    ("ad_sam_keep_loaded", "ADetailer SAM keep loaded"),
     ("ad_tab_enable", "ADetailer tab enable"),
     ("ad_hires_fix_only", "ADetailer hires fix only"),
     ("ad_prompt", "ADetailer prompt"),

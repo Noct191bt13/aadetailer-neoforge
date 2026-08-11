@@ -56,6 +56,10 @@ def install():
         ("ultralytics", "8.3.75", None),
         ("mediapipe", mediapipe_min, mediapipe_max),
         ("rich", "13.0.0", None),
+        # SAM2 mask refinement (adetailer/sam.py)
+        ("sam2", "1.1.0", None),
+        ("hydra-core", "1.3.2", None),
+        ("iopath", "0.1.10", None),
     ]
 
     pkgs = []

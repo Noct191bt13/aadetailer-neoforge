@@ -104,6 +104,35 @@ Put your [ultralytics](https://github.com/ultralytics/ultralytics) yolo model in
 
 It must be a bbox detection or segment model and use all label.
 
+### SAM2 mask refinement
+
+In addition to the classic YOLO/mediapipe detectors, you can refine the
+inpaint masks with [SAM2](https://github.com/facebookresearch/sam2) (Segment
+Anything 2), using each detected box as a box prompt. This produces object-
+shaped masks instead of rectangles, so inpainting stays inside the subject.
+It works with every detector: bbox-only YOLOs (face, hand, person) and
+mediapipe get real masks, and segmentation YOLOs get tighter masks.
+
+| Option | Description |
+| --- | --- |
+| ADetailer SAM2 model | `None` = keep the classic detector masks. Pick a SAM2 model to refine. |
+| ADetailer SAM2 keep loaded | Keep the SAM2 model in VRAM between generations (default on). Uncheck to offload after every use. |
+
+Models are downloaded on first use into `models/sam2` in your webui root:
+
+- `sam2_hiera_tiny.pt` / `sam2_hiera_small.pt` / `sam2_hiera_base_plus.pt` / `sam2_hiera_large.pt`
+- `sam2.1_hiera_tiny.pt` / `sam2.1_hiera_small.pt` / `sam2.1_hiera_base_plus.pt` / `sam2.1_hiera_large.pt`
+
+Smaller models (tiny/small) are fast and light; `large` gives the most
+precise masks but needs more VRAM. The classic pipeline is unchanged when no
+SAM2 model is selected, and masks that SAM2 cannot segment fall back to the
+detector masks automatically.
+
+Note: SAM2 runs synchronously during generation, so expect a few seconds of
+added latency per image (more on CPU or with larger models). With "keep
+loaded" on, the model stays in VRAM for the whole session; only one SAM2
+model is kept resident at a time.
+
 ## How it works
 
 ADetailer works in three simple steps.

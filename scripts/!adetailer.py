@@ -50,6 +50,7 @@ from adetailer.args import (
     SkipImg2ImgOrig,
 )
 from adetailer.common import PredictOutput, ensure_pil_image, safe_mkdir
+from adetailer import sam as adetailer_sam
 from adetailer.mask import (
     filter_by_ratio,
     filter_k_by,
@@ -98,6 +99,18 @@ model_mapping = get_models(
     huggingface=not no_huggingface,
 )
 
+sam_models_dir = Path(paths.models_path, "sam2")
+safe_mkdir(sam_models_dir)
+sam_model_list = (
+    adetailer_sam.list_sam_models() if adetailer_sam.sam_available() else []
+)
+
+if not adetailer_sam.sam_available():
+    print(
+        "[-] ADetailer: sam2 package not installed; SAM2 mask refinement is "
+        "disabled until the webui restart installs it."
+    )
+
 txt2img_submit_button = img2img_submit_button = None
 txt2img_submit_button = cast(gr.Button, txt2img_submit_button)
 img2img_submit_button = cast(gr.Button, img2img_submit_button)
@@ -116,6 +129,8 @@ class AfterDetailerScript(scripts.Script):
     def __init__(self):
         super().__init__()
         self.ultralytics_device = self.get_ultralytics_device()
+        self.sam_device = self.get_sam_device()
+        self.sam_offload_device = "cpu"
 
         self.controlnet_ext = None
 
@@ -139,6 +154,7 @@ class AfterDetailerScript(scripts.Script):
 
         webui_info = WebuiInfo(
             ad_model_list=ad_model_list,
+            sam_model_list=sam_model_list,
             sampler_names=sampler_names,
             scheduler_names=scheduler_names,
             t2i_button=txt2img_submit_button,
@@ -293,6 +309,18 @@ class AfterDetailerScript(scripts.Script):
             return "cpu"
 
         return ""
+
+    @staticmethod
+    def get_sam_device() -> str:
+        use_cpu = getattr(shared.cmd_opts, "use_cpu", ())
+        if use_cpu and "adetailer" in use_cpu:
+            return "cpu"
+
+        vram_args = ["lowvram", "medvram", "medvram_sdxl"]
+        if any(getattr(cmd_opts, vram, False) for vram in vram_args):
+            return "cpu"
+
+        return str(devices.device)
 
     def prompt_blank_replacement(
         self, all_prompts: list[str], i: int, default: str
@@ -1028,6 +1056,29 @@ class AfterDetailerScript(scripts.Script):
             )
             return False
 
+        if (
+            args.ad_sam_model != "None"
+            and pred.bboxes
+            and adetailer_sam.sam_available()
+        ):
+            try:
+                pred.masks = adetailer_sam.refine(
+                    args.ad_sam_model,
+                    image=pp.image,
+                    bboxes=pred.bboxes,
+                    fallback_masks=pred.masks,
+                    models_dir=sam_models_dir,
+                    device=self.sam_device,
+                    offload_device=self.sam_offload_device,
+                    keep_loaded=args.ad_sam_keep_loaded,
+                )
+            except Exception:
+                traceback.print_exc()
+                print(
+                    "[-] ADetailer: SAM2 mask refinement failed, "
+                    "falling back to detector masks."
+                )
+
         masks = self.pred_preprocessing(p, pred, args)
         shared.state.assign_current_image(pred.preview)
 
@@ -1314,6 +1365,12 @@ def make_axis_on_xyz_grid():
             str,
             partial(set_value, field="ad_model"),
             choices=lambda: model_list,
+        ),
+        xyz_grid.AxisOption(
+            "[ADetailer] ADetailer SAM model 1st",
+            str,
+            partial(set_value, field="ad_sam_model"),
+            choices=lambda: ["None", *sam_model_list],
         ),
         xyz_grid.AxisOption(
             "[ADetailer] ADetailer prompt 1st",

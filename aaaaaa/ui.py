@@ -55,6 +55,7 @@ class Widgets(SimpleNamespace):
 @dataclass
 class WebuiInfo:
     ad_model_list: list[str]
+    sam_model_list: list[str]
     sampler_names: list[str]
     scheduler_names: list[str]
     t2i_button: gr.Button
@@ -212,6 +213,26 @@ def one_ui_group(n: int, is_img2img: bool, webui_info: WebuiInfo):
                 type="value",
                 elem_id=eid("ad_model"),
                 info="Select a model to use for detection.",
+            )
+
+        with gr.Row():
+            w.ad_sam_model = gr.Dropdown(
+                label="ADetailer SAM2 model" + suffix(n),
+                choices=["None", *webui_info.sam_model_list],
+                value="None",
+                visible=True,
+                type="value",
+                elem_id=eid("ad_sam_model"),
+                info="Refine detected boxes into precise masks with SAM2 "
+                "(box prompt per detection). Requires a detector above.",
+            )
+            w.ad_sam_keep_loaded = gr.Checkbox(
+                label="Keep SAM2 model loaded" + suffix(n),
+                value=True,
+                visible=True,
+                elem_id=eid("ad_sam_keep_loaded"),
+                info="Keep the SAM2 model in VRAM between generations. "
+                "Uncheck to offload it after each use.",
             )
 
         with gr.Row():
