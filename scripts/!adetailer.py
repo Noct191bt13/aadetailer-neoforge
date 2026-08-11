@@ -103,7 +103,9 @@ model_mapping = get_models(
 sam_models_dir = Path(paths.models_path, "sam2")
 safe_mkdir(sam_models_dir)
 sam_model_list = (
-    adetailer_sam.list_sam_models() if adetailer_sam.sam_available() else []
+    adetailer_sam.list_sam_models(sam_models_dir)
+    if adetailer_sam.sam_available()
+    else []
 )
 
 if not adetailer_sam.sam_available():
@@ -1123,6 +1125,13 @@ class AfterDetailerScript(scripts.Script):
                     device=self.sam_device,
                     offload_device=self.sam_offload_device,
                     keep_loaded=args.ad_sam_keep_loaded,
+                    bbox_expansion=args.ad_sam_bbox_expansion,
+                    mask_hint=args.ad_sam_mask_hint,
+                    mask_hint_threshold=args.ad_sam_mask_hint_threshold,
+                    mask_hint_use_negative=args.ad_sam_mask_hint_use_negative,
+                    threshold=args.ad_sam_threshold,
+                    dilation=args.ad_sam_dilation,
+                    feather=args.ad_sam_mask_feather,
                 )
                 refined = True
             except Exception:

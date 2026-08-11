@@ -118,6 +118,18 @@ mediapipe get real masks, and segmentation YOLOs get tighter masks.
 | ADetailer SAM2 model | `None` = keep the classic detector masks. Pick a SAM2 model to refine. |
 | ADetailer SAM2 keep loaded | Keep the SAM2 model in VRAM between generations (default on). Uncheck to offload after every use. |
 
+All SAM2 controls live in the "SAM2 refinement" foldout of each unit:
+
+| Option | Description |
+| --- | --- |
+| Box expansion | Grow each detection box by N pixels before sending it to SAM2 (more context around the object). |
+| Mask threshold | Binarize SAM2 output masks at this confidence. 0 keeps any nonzero mask. |
+| Dilation (-erode / +dilate) | Enlarge (positive) or shrink (negative) the refined SAM2 mask. |
+| Mask feather | Gaussian-blur the refined mask edges (soft edges). |
+| Use detection mask as hint | Pass the detector mask to SAM2 as an extra mask prompt alongside the box. |
+| Mask hint threshold | Binarize the detector mask at this level before using it as a hint. |
+| Mask hint negative point | Add a negative point prompt sampled from the hint background inside the box. |
+
 Models are downloaded on first use into `models/sam2` in your webui root:
 
 - `sam2_hiera_tiny.pt` / `sam2_hiera_small.pt` / `sam2_hiera_base_plus.pt` / `sam2_hiera_large.pt`
@@ -127,6 +139,13 @@ Smaller models (tiny/small) are fast and light; `large` gives the most
 precise masks but needs more VRAM. The classic pipeline is unchanged when no
 SAM2 model is selected, and masks that SAM2 cannot segment fall back to the
 detector masks automatically.
+
+**Custom checkpoints:** drop any fine-tuned SAM2 `.pt` file into
+`models/sam2` and it appears in the model dropdown (Reload UI if it was added
+while the webui was running). The architecture is guessed from the filename:
+name it e.g. `sam2_hiera_large_<yours>.pt` or `sam2.1_hiera_tiny_<yours>.pt`.
+Unrecognized names fall back to the sam2_hiera_large architecture with a
+console warning.
 
 Note: SAM2 runs synchronously during generation, so expect a few seconds of
 added latency per image (more on CPU or with larger models). With "keep

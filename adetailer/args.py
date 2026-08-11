@@ -58,6 +58,13 @@ class ADetailerArgs(BaseModel, extra=Extra.forbid):
     ad_model_classes: str = ""
     ad_sam_model: str = "None"
     ad_sam_keep_loaded: bool = True
+    ad_sam_bbox_expansion: NonNegativeInt = 0
+    ad_sam_mask_hint: bool = False
+    ad_sam_mask_hint_threshold: confloat(ge=0.0, le=1.0) = 0.5
+    ad_sam_mask_hint_use_negative: bool = False
+    ad_sam_threshold: confloat(ge=0.0, le=1.0) = 0.0
+    ad_sam_dilation: int = 0
+    ad_sam_mask_feather: NonNegativeInt = 0
     ad_tab_enable: bool = True
     ad_hires_fix_only: bool = False
     ad_prompt: str = ""
@@ -144,6 +151,13 @@ class ADetailerArgs(BaseModel, extra=Extra.forbid):
         ppop("ADetailer model classes")
         ppop("ADetailer SAM model", cond="None")
         ppop("ADetailer SAM keep loaded", cond=True)
+        ppop("ADetailer SAM bbox expansion", cond=0)
+        ppop("ADetailer SAM mask hint", cond=False)
+        ppop("ADetailer SAM mask hint threshold", cond=0.5)
+        ppop("ADetailer SAM mask hint use negative", cond=False)
+        ppop("ADetailer SAM threshold", cond=0.0)
+        ppop("ADetailer SAM dilation", cond=0)
+        ppop("ADetailer SAM mask feather", cond=0)
         ppop("ADetailer prompt")
         ppop("ADetailer negative prompt")
         ppop("ADetailer append main prompt LoRAs")
@@ -243,6 +257,13 @@ _all_args = [
     ("ad_model_classes", "ADetailer model classes"),
     ("ad_sam_model", "ADetailer SAM model"),
     ("ad_sam_keep_loaded", "ADetailer SAM keep loaded"),
+    ("ad_sam_bbox_expansion", "ADetailer SAM bbox expansion"),
+    ("ad_sam_mask_hint", "ADetailer SAM mask hint"),
+    ("ad_sam_mask_hint_threshold", "ADetailer SAM mask hint threshold"),
+    ("ad_sam_mask_hint_use_negative", "ADetailer SAM mask hint use negative"),
+    ("ad_sam_threshold", "ADetailer SAM threshold"),
+    ("ad_sam_dilation", "ADetailer SAM dilation"),
+    ("ad_sam_mask_feather", "ADetailer SAM mask feather"),
     ("ad_tab_enable", "ADetailer tab enable"),
     ("ad_hires_fix_only", "ADetailer hires fix only"),
     ("ad_prompt", "ADetailer prompt"),

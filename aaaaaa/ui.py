@@ -215,24 +215,121 @@ def one_ui_group(n: int, is_img2img: bool, webui_info: WebuiInfo):
                 info="Select a model to use for detection.",
             )
 
-        with gr.Row():
-            w.ad_sam_model = gr.Dropdown(
-                label="ADetailer SAM2 model" + suffix(n),
-                choices=["None", *webui_info.sam_model_list],
-                value="None",
-                visible=True,
-                type="value",
-                elem_id=eid("ad_sam_model"),
-                info="Refine detected boxes into precise masks with SAM2 "
-                "(box prompt per detection). Requires a detector above.",
-            )
-            w.ad_sam_keep_loaded = gr.Checkbox(
-                label="Keep SAM2 model loaded" + suffix(n),
-                value=True,
-                visible=True,
-                elem_id=eid("ad_sam_keep_loaded"),
-                info="Keep the SAM2 model in VRAM between generations. "
-                "Uncheck to offload it after each use.",
+        with gr.Accordion(
+            "SAM2 refinement" + suffix(n),
+            open=False,
+            elem_id=eid("ad_sam_accordion"),
+        ):
+            with gr.Row():
+                w.ad_sam_model = gr.Dropdown(
+                    label="ADetailer SAM2 model" + suffix(n),
+                    choices=["None", *webui_info.sam_model_list],
+                    value="None",
+                    visible=True,
+                    type="value",
+                    elem_id=eid("ad_sam_model"),
+                    info="Refine detected boxes into precise masks with SAM2 "
+                    "(box prompt per detection). Requires a detector above.",
+                )
+                w.ad_sam_keep_loaded = gr.Checkbox(
+                    label="Keep SAM2 model loaded" + suffix(n),
+                    value=True,
+                    visible=True,
+                    elem_id=eid("ad_sam_keep_loaded"),
+                    info="Keep the SAM2 model in VRAM between generations. "
+                    "Uncheck to offload it after each use.",
+                )
+
+            with gr.Row():
+                w.ad_sam_bbox_expansion = gr.Slider(
+                    label="Box expansion" + suffix(n),
+                    minimum=0,
+                    maximum=200,
+                    step=1,
+                    value=0,
+                    visible=True,
+                    elem_id=eid("ad_sam_bbox_expansion"),
+                    info="Expand each detection box by this many pixels before "
+                    "sending it to SAM2 (more context around the object).",
+                )
+                w.ad_sam_threshold = gr.Slider(
+                    label="Mask threshold" + suffix(n),
+                    minimum=0.0,
+                    maximum=1.0,
+                    step=0.01,
+                    value=0.0,
+                    visible=True,
+                    elem_id=eid("ad_sam_threshold"),
+                    info="Binarize SAM2 output masks at this confidence. "
+                    "0 keeps any nonzero mask.",
+                )
+
+            with gr.Row():
+                w.ad_sam_dilation = gr.Slider(
+                    label="Dilation (-erode / +dilate)" + suffix(n),
+                    minimum=-100,
+                    maximum=100,
+                    step=1,
+                    value=0,
+                    visible=True,
+                    elem_id=eid("ad_sam_dilation"),
+                    info="Enlarge (positive) or shrink (negative) the refined "
+                    "SAM2 mask.",
+                )
+                w.ad_sam_mask_feather = gr.Slider(
+                    label="Mask feather" + suffix(n),
+                    minimum=0,
+                    maximum=64,
+                    step=1,
+                    value=0,
+                    visible=True,
+                    elem_id=eid("ad_sam_mask_feather"),
+                    info="Gaussian-blur the refined mask edges by this many "
+                    "pixels (soft edges).",
+                )
+
+            with gr.Row():
+                w.ad_sam_mask_hint = gr.Checkbox(
+                    label="Use detection mask as hint" + suffix(n),
+                    value=False,
+                    visible=True,
+                    elem_id=eid("ad_sam_mask_hint"),
+                    info="Pass the detector mask to SAM2 as an additional prompt "
+                    "(mask hint) alongside the box.",
+                )
+                w.ad_sam_mask_hint_threshold = gr.Slider(
+                    label="Mask hint threshold" + suffix(n),
+                    minimum=0.0,
+                    maximum=1.0,
+                    step=0.01,
+                    value=0.5,
+                    visible=False,
+                    interactive=False,
+                    elem_id=eid("ad_sam_mask_hint_threshold"),
+                    info="Binarize the detector mask at this level before using "
+                    "it as a SAM2 hint.",
+                )
+                w.ad_sam_mask_hint_use_negative = gr.Checkbox(
+                    label="Mask hint negative point" + suffix(n),
+                    value=False,
+                    visible=False,
+                    interactive=False,
+                    elem_id=eid("ad_sam_mask_hint_use_negative"),
+                    info="Add a negative point prompt sampled from the hint "
+                    "background inside the box.",
+                )
+
+            w.ad_sam_mask_hint.change(
+                lambda value: (
+                    gr.update(visible=value, interactive=value),
+                    gr.update(visible=value, interactive=value),
+                ),
+                inputs=w.ad_sam_mask_hint,
+                outputs=[
+                    w.ad_sam_mask_hint_threshold,
+                    w.ad_sam_mask_hint_use_negative,
+                ],
+                queue=False,
             )
 
         with gr.Row():
