@@ -87,12 +87,12 @@ def sam_available() -> bool:
 
 
 def list_sam_models(models_dir: str | Path | None = None) -> list[str]:
-    """Built-in model names plus custom .pt files found in models_dir."""
+    """Built-in model names plus custom .pt/.pth files found in models_dir."""
     names = list(SAM_MODELS.keys())
     if models_dir is not None:
         d = Path(models_dir)
         if d.is_dir():
-            for p in sorted(d.glob("*.pt")):
+            for p in sorted(d.glob("*.pt")) + sorted(d.glob("*.pth")):
                 if p.name not in names:
                     names.append(p.name)
     return names
@@ -171,7 +171,7 @@ def _build_sam_model(name: str, models_dir: str | Path, device: str) -> Any:
         if not path.exists():
             msg = (
                 f"[-] ADetailer: SAM2 model file not found: {path}. "
-                "Put a .pt checkpoint in models/sam2, or pick a built-in model."
+                "Put a .pt/.pth checkpoint in models/sam2, or pick a built-in model."
             )
             raise ValueError(msg)
         config, known = _resolve_config(name)
