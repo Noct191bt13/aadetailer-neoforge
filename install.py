@@ -60,6 +60,8 @@ def install():
         ("sam2", "1.1.0", None),
         ("hydra-core", "1.3.2", None),
         ("iopath", "0.1.10", None),
+        # SAM1 fallback (sam_vit_b/l/h) — adetailer/sam.py dispatches via SamVersion
+        ("segment-anything", None, None),
     ]
 
     pkgs = []

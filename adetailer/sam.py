@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,11 @@ _SAM2_CONFIGS: dict[str, str] = {
 _SAM2_DEFAULT_CONFIG = "configs/sam2/sam2_hiera_l.yaml"
 
 
+class SamVersion(Enum):
+    SAM2 = "sam2"
+    SAM1 = "sam1"
+
+
 def sam_available() -> bool:
     """True if the sam2 package is importable (installed by install.py)."""
     try:
@@ -87,13 +93,13 @@ def sam_available() -> bool:
 
 
 def list_sam_models(models_dir: str | Path | None = None) -> list[str]:
-    """Built-in model names plus custom .pt/.pth files found in models_dir."""
+    """Built-in model names plus every regular file found in models_dir."""
     names = list(SAM_MODELS.keys())
     if models_dir is not None:
         d = Path(models_dir)
         if d.is_dir():
-            for p in sorted(d.glob("*.pt")) + sorted(d.glob("*.pth")):
-                if p.name not in names:
+            for p in sorted(d.iterdir()):
+                if p.is_file() and not p.name.startswith(".") and p.name not in names:
                     names.append(p.name)
     return names
 
@@ -109,6 +115,20 @@ def _resolve_config(model_name: str) -> tuple[str, bool]:
         if arch in model_name:
             return cfg, True
     return _SAM2_DEFAULT_CONFIG, False
+
+
+def _resolve_sam_version(path: Path) -> SamVersion:
+    """Detect SAM1 vs SAM2 from checkpoint content (fast, no model build)."""
+    import torch
+
+    sd = torch.load(str(path), map_location="cpu", weights_only=True)
+    if isinstance(sd, dict) and "model" in sd:
+        return SamVersion.SAM2
+    if isinstance(sd, dict) and any(k.startswith("image_encoder.") for k in sd):
+        return SamVersion.SAM1
+    if "sam_vit_" in path.name:
+        return SamVersion.SAM1
+    return SamVersion.SAM2
 
 
 def _sanitize_name(name: str) -> str:
@@ -153,10 +173,8 @@ def _download(url: str, target: Path) -> None:
     tmp.rename(target)
 
 
-def _build_sam_model(name: str, models_dir: str | Path, device: str) -> Any:
-    import torch
-    from sam2.build_sam import build_sam2
-
+def _resolve_checkpoint(name: str, models_dir: str | Path) -> tuple[Path, str]:
+    """Return (path, config) for either a built-in or a custom checkpoint."""
     if name in SAM_MODELS:
         checkpoint, config, url = SAM_MODELS[name]
         path = Path(models_dir) / checkpoint
@@ -165,34 +183,87 @@ def _build_sam_model(name: str, models_dir: str | Path, device: str) -> Any:
             print(f"[-] ADetailer: downloading SAM2 model {checkpoint} ...")
             _download(url, path)
             print(f"[-] ADetailer: SAM2 model {checkpoint} downloaded.")
-    else:
-        # custom checkpoint dropped into models/sam2
-        path = Path(models_dir) / name
-        if not path.exists():
-            msg = (
-                f"[-] ADetailer: SAM2 model file not found: {path}. "
-                "Put a .pt/.pth checkpoint in models/sam2, or pick a built-in model."
-            )
-            raise ValueError(msg)
-        config, known = _resolve_config(name)
-        if not known:
-            print(
-                f"[-] ADetailer: cannot guess the architecture of {name!r}; "
-                f"using sam2_hiera_large. Name it like "
-                "sam2_hiera_large_<yours>.pt or sam2.1_hiera_tiny_<yours>.pt "
-                "to select the architecture automatically."
-            )
+        return path, config
+
+    path = Path(models_dir) / name
+    if not path.exists():
+        msg = (
+            f"[-] ADetailer: SAM2 model file not found: {path}. "
+            "Drop a checkpoint in models/sam2, or pick a built-in model."
+        )
+        raise ValueError(msg)
+    config, _ = _resolve_config(name)
+    return path, config
+
+
+def _build_sam2_model(path: Path, config: str, device: str) -> Any:
+    import torch
+    from sam2.build_sam import build_sam2
 
     model = build_sam2(config_file=config, ckpt_path=str(path), device=device)
+    return _warmup(model, device)
+
+
+def _build_sam1_model(path: Path, device: str) -> Any:
+    try:
+        from segment_anything.build_sam import sam_model_registry
+    except ImportError as exc:
+        msg = (
+            f"[-] ADetailer: {path.name!r} is a SAM1 checkpoint (sam_vit_b/l/h), "
+            "but the 'segment-anything' package is not installed. "
+            "Install it, or use a SAM2 checkpoint "
+            "(sam2_hiera_* / sam2.1_hiera_*)."
+        )
+        raise ValueError(msg) from exc
+
+    name = path.name.lower()
+    if "vit_h" in name:
+        variant = "vit_h"
+    elif "vit_l" in name:
+        variant = "vit_l"
+    else:
+        variant = "vit_b"
+
+    model = sam_model_registry[variant](checkpoint=str(path))
+    model.to(device=device)
+    return _warmup(model, device)
+
+
+def _warmup(model: Any, device: str) -> Any:
+    import torch
+
     model.eval()
     with torch.no_grad():
-        # Warm-up on a tiny dummy input so the first real prediction is fast.
         dummy = torch.zeros(1, 3, 64, 64, device=device)
         try:
             model.image_encoder(dummy)
         except Exception:
             pass
     return model
+
+
+def _build_sam_model(name: str, models_dir: str | Path, device: str) -> Any:
+    path, config = _resolve_checkpoint(name, models_dir)
+
+    if name not in SAM_MODELS:
+        try:
+            version = _resolve_sam_version(path)
+        except Exception:
+            version = SamVersion.SAM2
+        if version == SamVersion.SAM1:
+            return _build_sam1_model(path, device)
+        if version == SamVersion.SAM2:
+            cfg, known = _resolve_config(name)
+            if not known:
+                print(
+                    f"[-] ADetailer: cannot guess the architecture of {name!r}; "
+                    f"using sam2_hiera_large. Name it like "
+                    "sam2_hiera_large_<yours>.pt or sam2.1_hiera_tiny_<yours>.pt "
+                    "to select the architecture automatically."
+                )
+            config = cfg
+
+    return _build_sam2_model(path, config, device)
 
 
 def _valid_boxes(
@@ -360,7 +431,7 @@ def _evict_lru() -> None:
         _offload(_CACHE.pop(oldest), "cpu")
 
 
-def _predict(
+def _predict_sam2(
     model: Any,
     image: Image.Image,
     bboxes: list[list[float]],
@@ -381,18 +452,13 @@ def _predict(
 
     valid = _valid_boxes(bboxes, width, height, expansion=bbox_expansion)
     if not valid:
-        # Keep the one-mask-per-bbox contract even when every box is unusable.
         return _align_masks(len(bboxes), {}, fallback_masks, image.size)
 
     indices = [i for i, _ in valid]
     boxes = [box for _, box in valid]
 
-    # set_image accepts numpy/PIL, moves the image to the model device itself,
-    # and postprocesses masks back to the original image resolution.
     predictor = SAM2ImagePredictor(model)
     predictor.set_image(np.array(image))
-    # Mask hints are expected at the prompt encoder's mask input resolution
-    # (typically 256x256), which it downsamples to image_embedding_size.
     mask_input_size = tuple(model.sam_prompt_encoder.mask_input_size)
 
     point_coords = None
@@ -400,20 +466,12 @@ def _predict(
     mask_input = None
 
     if mask_hint:
-        # Binarize each detector mask as a hint: at original size for point
-        # sampling, at the predictor's input size for mask_input.
         hints_orig: dict[int, np.ndarray] = {}
         hints_input: list[np.ndarray] = []
         for idx in indices:
             fallback = fallback_masks[idx] if idx < len(fallback_masks) else None
             if fallback is None:
-                # No detector mask for this box: an all-zero dense mask prompt
-                # is the neutral placeholder (an empty mask, not a "no hint"
-                # signal) so the mask_input batch stays uniform. The box prompt
-                # dominates the prediction for this box anyway.
-                hints_input.append(
-                    np.zeros((1, *mask_input_size), np.float32)
-                )
+                hints_input.append(np.zeros((1, *mask_input_size), np.float32))
                 continue
             arr = np.array(ensure_pil_image(fallback, "L"))
             hint = arr > (mask_hint_threshold * 255)
@@ -425,13 +483,9 @@ def _predict(
             ) > 127
             hints_input.append(resized.astype(np.float32)[None, ...])
 
-        mask_input = np.stack(hints_input, axis=0)  # (N, 1, H, W) at input size
+        mask_input = np.stack(hints_input, axis=0)
 
         if mask_hint_use_negative:
-            # SAM2 expects one point row per box (B, N, 2); build exactly two
-            # points per box: a positive (hint centroid, or box center when no
-            # hint) and a negative (background sample, or a harmless duplicate
-            # positive when the box is fully covered by the hint).
             per_box_coords: list[list[list[float]]] = []
             per_box_labels: list[list[int]] = []
             for idx, box in zip(indices, boxes):
@@ -453,7 +507,7 @@ def _predict(
                     box_coords.append(neg)
                     box_labels.append(0)
                 else:
-                    box_coords.append(list(pos))  # no-op duplicate
+                    box_coords.append(list(pos))
                     box_labels.append(1)
                 per_box_coords.append(box_coords)
                 per_box_labels.append(box_labels)
@@ -468,8 +522,6 @@ def _predict(
         multimask_output=False,
     )
 
-    # predict returns (N, H, W) after the library's internal squeeze; keep a
-    # defensive 4D branch in case a future version stops squeezing.
     if masks.ndim == 4:
         masks = masks[:, 0]
     if len(masks) != len(boxes):
@@ -484,6 +536,89 @@ def _predict(
             sam_masks[idx] = _postprocess_mask(binary, dilation, feather)
 
     return _align_masks(len(bboxes), sam_masks, fallback_masks, image.size)
+
+
+def _predict_sam1(
+    model: Any,
+    image: Image.Image,
+    bboxes: list[list[float]],
+    fallback_masks: list[Image.Image],
+    *,
+    bbox_expansion: int,
+    threshold: float,
+    dilation: int,
+    feather: int,
+) -> list[Image.Image]:
+    from segment_anything import SamPredictor
+
+    image = ensure_pil_image(image, "RGB")
+    width, height = image.size
+
+    valid = _valid_boxes(bboxes, width, height, expansion=bbox_expansion)
+    if not valid:
+        return _align_masks(len(bboxes), {}, fallback_masks, image.size)
+
+    indices = [i for i, _ in valid]
+    boxes = [box for _, box in valid]
+
+    predictor = SamPredictor(model)
+    predictor.set_image(np.array(image))
+
+    sam_masks: dict[int, Image.Image] = {}
+    for idx, box in zip(indices, boxes):
+        masks, _, _ = predictor.predict(
+            box=np.array(box, dtype=np.float32),
+            multimask_output=False,
+        )
+        mask = masks[0] if masks.ndim == 3 else masks
+        binary = np.asarray(mask) > threshold
+        if binary.ndim == 3:
+            binary = binary[0]
+        if binary.any():
+            sam_masks[idx] = _postprocess_mask(binary, dilation, feather)
+
+    return _align_masks(len(bboxes), sam_masks, fallback_masks, image.size)
+
+
+def _predict(
+    model: Any,
+    image: Image.Image,
+    bboxes: list[list[float]],
+    fallback_masks: list[Image.Image],
+    *,
+    bbox_expansion: int,
+    mask_hint: bool,
+    mask_hint_threshold: float,
+    mask_hint_use_negative: bool,
+    threshold: float,
+    dilation: int,
+    feather: int,
+) -> list[Image.Image]:
+    is_sam1 = model.__class__.__module__.startswith("segment_anything")
+    if is_sam1:
+        return _predict_sam1(
+            model,
+            image,
+            bboxes,
+            fallback_masks,
+            bbox_expansion=bbox_expansion,
+            threshold=threshold,
+            dilation=dilation,
+            feather=feather,
+        )
+    return _predict_sam2(
+        model,
+        image,
+        bboxes,
+        fallback_masks,
+        bbox_expansion=bbox_expansion,
+        mask_hint=mask_hint,
+        mask_hint_threshold=mask_hint_threshold,
+        mask_hint_use_negative=mask_hint_use_negative,
+        threshold=threshold,
+        dilation=dilation,
+        feather=feather,
+    )
 
 
 def _find_negative_point(
